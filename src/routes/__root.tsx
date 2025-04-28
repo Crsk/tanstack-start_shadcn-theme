@@ -13,6 +13,8 @@ import { DefaultCatchBoundary } from "~/components/DefaultCatchBoundary";
 import { NotFound } from "~/components/NotFound";
 import appCss from "~/styles/app.css?url";
 import { seo } from "~/utils/seo";
+import { getThemeServerFn } from "~/lib/theme";
+import { ThemeProvider, useTheme } from "~/providers/theme-provider";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -64,19 +66,26 @@ export const Route = createRootRouteWithContext<{
   },
   notFoundComponent: () => <NotFound />,
   component: RootComponent,
+  loader: () => getThemeServerFn(),
 });
 
 function RootComponent() {
+  const initialTheme = Route.useLoaderData();
+
   return (
-    <RootDocument>
-      <Outlet />
-    </RootDocument>
+    <ThemeProvider initialTheme={initialTheme}>
+      <RootDocument>
+        <Outlet />
+      </RootDocument>
+    </ThemeProvider>
   );
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  const { currentTheme } = useTheme();
+
   return (
-    <html>
+    <html className={currentTheme}>
       <head>
         <HeadContent />
       </head>
