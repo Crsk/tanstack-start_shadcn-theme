@@ -1,72 +1,141 @@
-# Welcome to TanStack.com!
+# TanStack Start + Shadcn UI Dark Theme
 
-This site is built with TanStack Router!
+## 1. Theme Server Functions
 
-- [TanStack Router Docs](https://tanstack.com/router)
+Create a file `src/lib/theme.ts` to handle server-side theme operations:
 
-It's deployed automagically with Netlify!
+```ts
+import { type Theme } from "~/providers/theme-provider";
+import { createServerFn } from "@tanstack/react-start";
+import { getCookie, setCookie } from "@tanstack/react-start/server";
 
-- [Netlify](https://netlify.com/)
+export const THEME_COOKIE_KEY = "ui-theme";
+export const THEME_VALUES = ["light", "dark", "system"] as const;
 
-## Development
+export const getThemeServerFn = createServerFn().handler(async () => {
+  return (getCookie(THEME_COOKIE_KEY) || "light") as Theme;
+});
 
-From your terminal:
+export const setThemeServerFn = createServerFn({ method: "POST" })
+  .validator((data: Theme) => {
+    if (!THEME_VALUES.includes(data)) throw new Error("Invalid theme provided");
 
-```sh
-pnpm install
-pnpm dev
+    return data;
+  })
+  .handler(async ({ data }) => {
+    setCookie(THEME_COOKIE_KEY, data);
+  });
 ```
 
-This starts your app in development mode, rebuilding assets on file changes.
+## 2. Theme Provider
 
-## Editing and previewing the docs of TanStack projects locally
+Create a theme provider in `src/providers/theme-provider.tsx`:
 
-The documentations for all TanStack projects except for `React Charts` are hosted on [https://tanstack.com](https://tanstack.com), powered by this TanStack Router app.
-In production, the markdown doc pages are fetched from the GitHub repos of the projects, but in development they are read from the local file system.
+```tsx
+import { useRouter } from "@tanstack/react-router";
+import { createContext, PropsWithChildren, useContext, useState } from "react";
+import { setThemeServerFn } from "~/lib/theme";
 
-Follow these steps if you want to edit the doc pages of a project (in these steps we'll assume it's [`TanStack/form`](https://github.com/tanstack/form)) and preview them locally :
+export type Theme = "light" | "dark" | "system";
 
-1. Create a new directory called `tanstack`.
+interface ThemeContextValue {
+  currentTheme: Theme;
+  setTheme: (theme: Theme) => Promise<void>;
+}
 
-```sh
-mkdir tanstack
+const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+export const ThemeProvider = ({
+  children,
+  initialTheme,
+}: PropsWithChildren<{ initialTheme: Theme }>) => {
+  const [currentTheme, setCurrentTheme] = useState<Theme>(initialTheme);
+  const router = useRouter();
+
+  const setTheme = async (theme: Theme) => {
+    await setThemeServerFn({ data: theme });
+    setCurrentTheme(theme);
+    router.invalidate();
+  };
+
+  return (
+    <ThemeContext.Provider value={{ currentTheme, setTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+};
+
+export const useTheme = () => {
+  const context = useContext(ThemeContext);
+  if (!context) throw new Error("useTheme must be used within a ThemeProvider");
+
+  return context;
+};
 ```
 
-2. Enter the directory and clone this repo and the repo of the project there.
+## 3. Root Route Setup
 
-```sh
-cd tanstack
-git clone git@github.com:TanStack/tanstack.com.git
-git clone git@github.com:TanStack/form.git
+Update your root route (`src/routes/__root.tsx`):
+
+```tsx
+import { ThemeProvider } from "~/providers/theme-provider";
+import { getThemeServerFn } from "~/lib/theme";
+
+export const Route = createRootRouteWithContext<{
+  queryClient: QueryClient;
+}>()({
+  // ... other configuration
+  component: RootComponent,
+  loader: () => getThemeServerFn(),
+});
+
+function RootComponent() {
+  const initialTheme = Route.useLoaderData();
+
+  return (
+    <ThemeProvider initialTheme={initialTheme}>
+      <RootDocument>
+        <Outlet />
+      </RootDocument>
+    </ThemeProvider>
+  );
+}
+
+function RootDocument({ children }: { children: React.ReactNode }) {
+  const { currentTheme } = useTheme();
+
+  return (
+    <html className={currentTheme}>
+      <head>
+        <HeadContent />
+      </head>
+      <body>
+        {children}
+        <Scripts />
+      </body>
+    </html>
+  );
+}
 ```
 
-> [!NOTE]
-> Your `tanstack` directory should look like this:
->
-> ```
-> tanstack/
->    |
->    +-- form/
->    |
->    +-- tanstack.com/
-> ```
+## 4. Theme Toggle Component
 
-> [!WARNING]
-> Make sure the name of the directory in your local file system matches the name of the project's repo. For example, `tanstack/form` must be cloned into `form` (this is the default) instead of `some-other-name`, because that way, the doc pages won't be found.
+```tsx
+import { MoonIcon, SunIcon } from "lucide-react";
+import { Button } from "~/components/ui/button";
+import { useTheme } from "~/providers/theme-provider";
 
-3. Enter the `tanstack/tanstack.com` directory, install the dependencies and run the app in dev mode:
+export function ThemeToggle() {
+  const { currentTheme, setTheme } = useTheme();
 
-```sh
-cd tanstack.com
-pnpm i
-# The app will run on https://localhost:3000 by default
-pnpm dev
+  const toggleTheme = () => {
+    setTheme(currentTheme === "dark" ? "light" : "dark");
+  };
+
+  return (
+    <Button variant="ghost" onClick={toggleTheme}>
+      {currentTheme === "light" ? <SunIcon /> : <MoonIcon />}
+    </Button>
+  );
+}
 ```
-
-4. Now you can visit http://localhost:3000/form/latest/docs/overview in the browser and see the changes you make in `tanstack/form/docs`.
-
-> [!NOTE]
-> The updated pages need to be manually reloaded in the browser.
-
-> [!WARNING]
-> You will need to update the `docs/config.json` file (in the project's repo) if you add a new doc page!
